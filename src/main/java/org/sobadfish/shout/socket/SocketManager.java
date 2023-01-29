@@ -396,6 +396,13 @@ public class SocketManager {
             Gson gson = new Gson();
             while (!socket.isClosed()){
                 try {
+                    //TODO 心跳包判断连接是否保持
+                    try {
+                        socket.sendUrgentData(0);
+                    }catch (IOException e){
+                        return false;
+                    }
+
                     byte[] bytes = new byte[1024];
                     inputStream.read(bytes,0,bytes.length);
                     String out = new String(bytes, StandardCharsets.UTF_8).trim();
@@ -493,6 +500,11 @@ public class SocketManager {
                 byte[] msg = gson.toJson(messageData).getBytes(StandardCharsets.UTF_8);
                 try {
                     if(outputStream != null){
+                        try {
+                            socket.sendUrgentData(0);
+                        }catch (IOException e){
+                            return false;
+                        }
                         outputStream.write(msg);
                         return true;
                     }
