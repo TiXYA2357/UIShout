@@ -34,7 +34,10 @@ public class WindowsFrom implements Listener {
     // 提交表单
     @EventHandler
     public void onFromListener(PlayerFormRespondedEvent event){
-        if(event.getResponse().getClass() == FormResponseCustom.class && event.getFormID() == ID){
+        if(event.wasClosed()){
+            return;
+        }
+        if(event.getResponse() instanceof FormResponseCustom && event.getFormID() == ID){
             FormResponseCustom responseCustom = (FormResponseCustom) event.getResponse();
             Player player = event.getPlayer();
             ShoutData data = new ShoutData();

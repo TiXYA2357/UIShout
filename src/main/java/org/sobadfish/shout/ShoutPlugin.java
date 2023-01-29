@@ -183,7 +183,7 @@ public class ShoutPlugin extends PluginBase implements Listener {
     public void broadcastMessage(MsgBroadcastData data){
 
         String msg = TextFormat.colorize('&',shoutConfig.msg.echo
-                .replace("${server}",SERVER_NAME)
+                .replace("${server}",data.server)
                 .replace("${player}",data.player));
         msg = msg.replace("${msg}",data.msg);
         String finalMsg = msg;
@@ -241,7 +241,20 @@ public class ShoutPlugin extends PluginBase implements Listener {
 
 
         }else{
-            sender.sendMessage(TextFormat.colorize('&',TITLE+"请不要在控制台执行"));
+            if(args.length > 0){
+                MsgBroadcastData data1 = new MsgBroadcastData();
+                data1.server = SERVER_NAME;
+                data1.player = "CONSOLE";
+                data1.msg = args[0];
+                data1.type = "Msg";
+                if(socketManager != null){
+                    socketManager.sendMessage(data1);
+                }
+//            if(socketManager == null || !socketManager.enable || socketManager.getType() == SocketManager.SocketType.SERVER){
+                broadcastMessage(data1);
+            }else {
+                sender.sendMessage(TextFormat.colorize('&', TITLE + "请不要在控制台执行"));
+            }
         }
         return super.onCommand(sender, command, label, args);
     }

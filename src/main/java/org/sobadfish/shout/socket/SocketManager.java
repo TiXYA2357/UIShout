@@ -1,14 +1,19 @@
 package org.sobadfish.shout.socket;
 
 
-
 import com.google.gson.Gson;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.*;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.Base64;
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -51,7 +56,20 @@ public class SocketManager {
         this.socket = socket;
         type = SocketType.SOCKET;
         enable = true;
-        connect();
+        executor.execute(new SocketThread(this) {
+            @Override
+            public void run() {
+                if (socket != null && socket.isConnected()) {
+                        if(socket.isEnable()){
+                            if(!socket.read(getSocketManager())){
+                                socket.disable();
+
+                            }
+                        }
+                    }
+
+            }
+        });
 
     }
 
@@ -64,7 +82,6 @@ public class SocketManager {
         enable = true;
         enable();
 
-        connect();
 
 
     }
@@ -159,10 +176,23 @@ public class SocketManager {
                     if(node != null){
                         sockets.add(node);
                         // 回传分配的端口
-                        node.sendMessage(MessageData.createMessage(new PortBack(node.port)));
+                        MessageData messageData = MessageData.createMessage(new PortBack(node.getPort()));
+                        messageData.type = "port";
+                        node.sendMessage(messageData);
                         if(connectListener != null){
                             connectListener.join(node);
                         }
+                        new Thread(new SocketThread(this) {
+                            @Override
+                            public void run() {
+                                if(!node.read(getSocketManager())){
+                                    node.disable();
+                                    if(connectListener != null){
+                                        connectListener.quit(node);
+                                    }
+                                }
+                            }
+                        }).start();
                     }
                 } catch (IOException e) {
 
@@ -170,6 +200,11 @@ public class SocketManager {
                         System.out.println(socket.getInetAddress()+":"+socket.getPort()+"断开连接");
                     }
 
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
             }
         });
@@ -191,6 +226,9 @@ public class SocketManager {
 
         public Long time;
 
+        public String type;
+
+
 
         public static MessageData createMessage(Object o){
             MessageData data = new MessageData();
@@ -203,13 +241,13 @@ public class SocketManager {
             }
             data.time = System.currentTimeMillis();
             Gson gson = new Gson();
-            data.msg = new String(Base64.getEncoder().encode(gson.toJson(o).getBytes(StandardCharsets.UTF_8)));
+            data.msg = gson.toJson(o);
             return data;
         }
 
         public <T> T getData(Class<T> data){
             Gson gson = new Gson();
-            return gson.fromJson(new String(Base64.getDecoder().decode(msg), StandardCharsets.UTF_8),data);
+            return gson.fromJson(msg.trim(),data);
         }
 
         @Override
@@ -222,80 +260,38 @@ public class SocketManager {
 
 
     public static class PortBack{
+
+        /**
+         * host : MTkyLjE2OC4xMzIuMQ==
+         * port : 55179
+         * msg : eyJwb3J0Ijo1NTE3OX0=
+         * time : 1674997819196
+         */
+
+        public String host;
+
         public int port;
+
+        public long time;
+
+        public PortBack(){}
+
         public PortBack(int port){
             this.port = port;
         }
 
-        public int getPort() {
-            return port;
+        @Override
+        public String toString() {
+            return "PortBack{" +
+                    "host='" + host + '\'' +
+                    ", port=" + port +
+                    ", time=" + time +
+                    '}';
         }
     }
 
 
 
-
-    private void connect() {
-        executor.execute(() -> {
-            while (isEnable()) {
-                if (type == SocketType.SERVER) {
-                    // 遍历时修改
-                    for (SocketNode node : sockets) {
-                        if (node != null && node.isConnected()) {
-                            if(node.isEnable()){
-                                if(!node.read(this)){
-                                    if(connectListener != null){
-                                        connectListener.quit(node);
-                                    }
-                                    node.disable();
-                                }
-                            }
-                        }
-                    }
-                }
-                if (type == SocketType.SOCKET) {
-                    if (socket != null && socket.isConnected()) {
-//                        read(socket.socket);
-                        if(socket.isEnable()){
-                            if(!socket.read(this)){
-                                if(connectListener != null){
-                                    connectListener.quit(socket);
-                                }
-                                socket.disable();
-
-                            }
-                        }
-                    }
-                }
-            }
-
-        });
-    }
-
-
-    /**
-     * 判断连接是否有效
-     *
-     * */
-    public boolean isEnable(){
-        if(enable) {
-            switch (type) {
-                case SERVER:
-                    if (serverSocket != null) {
-                        return !serverSocket.isClosed();
-                    }
-                    break;
-                case SOCKET:
-                    if (socket != null) {
-                        return socket.isConnected();
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
-        return false;
-    }
 
     public enum SocketType{
         /**
@@ -320,7 +316,9 @@ public class SocketManager {
 
     public void sendMessage(Object o){
         MessageData messageData = MessageData.createMessage(o);
-        sendMessage(messageData);
+        if(!sendMessage(messageData)){
+            System.out.println("数据发送失败 端口:"+port);
+        }
 
     }
 
@@ -395,15 +393,20 @@ public class SocketManager {
                     String out = new String(bytes, StandardCharsets.UTF_8).trim();
                     if(!"".equalsIgnoreCase(out.trim()) ){
                         MessageData data = gson.fromJson(out, MessageData.class);
-                        PortBack portBack = data.getData(PortBack.class);
-                        if (portBack != null && portBack.port > 0) {
-                            SocketManager.port = portBack.port;
-                            if (manager.connectListener != null) {
-                                manager.connectListener.join(this);
+                        PortBack portBack = null;
+                        if("port".equalsIgnoreCase(data.type)){
+                             portBack = data.getData(PortBack.class);
+
+                            if (portBack != null && portBack.port > 0) {
+                                SocketManager.port = portBack.port;
+                                if (manager.connectListener != null) {
+                                    manager.connectListener.join(this);
+                                }
+                            }else{
+                                portBack = null;
                             }
-                        }else{
-                            portBack = null;
                         }
+
 
                         // 判断是否为主机 如果是主机就把收到的数据分发给其他客户端
                         if (manager.type == SocketType.SERVER) {
@@ -427,7 +430,7 @@ public class SocketManager {
                     }
 
                 }catch (Exception e){
-                    e.printStackTrace();
+
                     return false;
                 }
             }
@@ -472,14 +475,14 @@ public class SocketManager {
 
 
         public boolean isConnected() {
-            return socket != null && socket.isConnected();
+            return socket != null && socket.isConnected() && !socket.isClosed();
         }
 
         private void sendMessage(MessageData messageData){
             if(isConnected()) {
                 messageData.port = port;
                 Gson gson = new Gson();
-                byte[] msg = gson.toJson(messageData).getBytes();
+                byte[] msg = gson.toJson(messageData).getBytes(StandardCharsets.UTF_8);
                 try {
                     if(outputStream != null){
                         outputStream.write(msg);
@@ -506,7 +509,7 @@ public class SocketManager {
                 return false;
             }
             SocketNode node = (SocketNode) o;
-            return Objects.equals(socket, node.socket);
+            return Objects.equals(socket, node.socket) && port == node.port;
         }
 
         @Override
@@ -517,6 +520,7 @@ public class SocketManager {
 
     public void disable(){
         enable = false;
+        executor.shutdown();
         if(serverSocket != null){
             try {
                 serverSocket.close();
@@ -533,6 +537,19 @@ public class SocketManager {
             } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+    }
+
+    public abstract static class SocketThread implements Runnable{
+
+        private SocketManager socketManager;
+
+        public SocketThread(SocketManager socketManager){
+            this.socketManager = socketManager;
+        }
+
+        public SocketManager getSocketManager() {
+            return socketManager;
         }
     }
 
