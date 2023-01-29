@@ -144,19 +144,27 @@ public class SocketManager {
      * 向网络中发送数据
      * @param messageData 监听器
      * */
-    public boolean sendMessage(MessageData messageData){
+    public boolean sendMessage(MessageData messageData,SocketManager manager){
         switch (type){
             case SOCKET:
                 if(socket != null && port > 0){
                     // 通信建立后才行发送数据
-                    socket.sendMessage(messageData);
+                    if(!socket.sendMessage(messageData)){
+                        if(manager.connectListener != null){
+                            manager.connectListener.quit(socket);
+                        }
+                    }
                     return true;
                 }
                 break;
             case SERVER:
                 if(sockets.size() > 0) {
                     for (SocketNode node : sockets) {
-                        node.sendMessage(messageData);
+                        if(!node.sendMessage(messageData)){
+                            if(manager.connectListener != null){
+                                manager.connectListener.quit(node);
+                            }
+                        }
                     }
                     return true;
                 }
@@ -316,7 +324,7 @@ public class SocketManager {
 
     public void sendMessage(Object o){
         MessageData messageData = MessageData.createMessage(o);
-        if(!sendMessage(messageData)){
+        if(!sendMessage(messageData,this)){
             System.out.println("数据发送失败 端口:"+port);
         }
 
@@ -478,7 +486,7 @@ public class SocketManager {
             return socket != null && socket.isConnected() && !socket.isClosed();
         }
 
-        private void sendMessage(MessageData messageData){
+        private boolean sendMessage(MessageData messageData){
             if(isConnected()) {
                 messageData.port = port;
                 Gson gson = new Gson();
@@ -486,11 +494,13 @@ public class SocketManager {
                 try {
                     if(outputStream != null){
                         outputStream.write(msg);
+                        return true;
                     }
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    return false;
                 }
             }
+            return false;
 
         }
 
