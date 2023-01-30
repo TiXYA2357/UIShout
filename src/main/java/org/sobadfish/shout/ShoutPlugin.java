@@ -18,6 +18,7 @@ import org.sobadfish.shout.utils.TextUtils;
 
 
 import java.io.*;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -66,7 +67,7 @@ public class ShoutPlugin extends PluginBase implements Listener {
         this.getLogger().info("初始化配置文件");
         initConfig();
         this.getLogger().info("启动检查网络环境");
-        initNetWork();
+        initNetWork(null);
 
         moneyManager = MoneyManager.getManager();
         initFrom();
@@ -139,11 +140,15 @@ public class ShoutPlugin extends PluginBase implements Listener {
         return shoutConfig;
     }
 
-    public void initNetWork(){
-
+    public void initNetWork(Socket socket){
         String host = getConfig().getString("server.host","127.0.0.1");
         int port = getConfig().getInt("port",25633);
-        socketManager = SocketManager.connectManager(host,port);
+        if(socket == null){
+            socketManager = SocketManager.connectManager(host,port);
+        }else{
+            socketManager = SocketManager.connectManager(socket);
+        }
+
         if(socketManager != null){
             this.getLogger().info("网络环境检查完成 当前连接类型为 "+TextFormat.colorize('&',"&e"+socketManager.getType()+""));
             socketManager.setConnectListener(new SocketManager.SocketConnectListener() {
@@ -155,6 +160,37 @@ public class ShoutPlugin extends PluginBase implements Listener {
                 @Override
                 public void quit(SocketManager.SocketNode socket) {
                     getLogger().info(socket.getIPAddress()+":"+socket.getPort()+" 已断开");
+                    socketManager.disable();
+                    //TODO 可以建立循环线程监听主机是否上线
+                    if(socketManager.getType() == SocketManager.SocketType.SOCKET){
+                        socketManager = null;
+                      new Thread(() -> {
+                          Socket test = null;
+                          do {
+                              getLogger().info("重连主机 "+host+":"+port+" 中...");
+                              try {
+                                 test = new Socket(host, port);
+                                 test.sendUrgentData(0);
+                                  getLogger().info("找到主机！...");
+                                 //TODO 尝试建立链接通过
+                                 initNetWork(test);
+                              } catch (IOException e) {
+                                  if(test != null){
+                                      try {
+                                          test.close();
+                                      } catch (IOException ignore) { }
+                                  }
+                                  test = null;
+
+                              }
+                              try {
+                                  Thread.sleep(1000 * 5);
+                              } catch (InterruptedException e) {
+                                  e.printStackTrace();
+                              }
+                          }while (test == null || !test.isConnected());
+                      }).start();
+                    }
 
                 }
             });
@@ -162,9 +198,13 @@ public class ShoutPlugin extends PluginBase implements Listener {
                 MsgBroadcastData data = messageData.getData(MsgBroadcastData.class);
                 broadcastMessage(data);
             });
+        }else if(socket != null){
+            try {
+                socket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
-
-
 
     }
 

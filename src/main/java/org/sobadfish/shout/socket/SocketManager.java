@@ -101,6 +101,30 @@ public class SocketManager {
     /**
      * 建立服务端与客户端的通信 如果服务端不存在，则创建服务端
      *
+     * @param socket Socket连接对象
+
+     * */
+    public static SocketManager connectManager(Socket socket){
+        //TODO 重新建立线程池 因为上个线程池被关闭了
+        executor = Executors.newCachedThreadPool() ;
+        try {
+            SocketNode node = SocketNode.getNode(socket);
+            if(node != null){
+                return new SocketManager(node);
+            }else{
+                return null;
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+
+        }
+        return null;
+    }
+
+    /**
+     * 建立服务端与客户端的通信 如果服务端不存在，则创建服务端
+     *
      * @param host 服务器IP
      * @param port 服务器端口
      * */
@@ -144,7 +168,7 @@ public class SocketManager {
      * 向网络中发送数据
      * @param messageData 监听器
      * */
-    public boolean sendMessage(MessageData messageData,SocketManager manager){
+    public synchronized boolean sendMessage(MessageData messageData,SocketManager manager){
         switch (type){
             case SOCKET:
                 if(socket != null && port > 0){
@@ -324,8 +348,16 @@ public class SocketManager {
 
     public void sendMessage(Object o){
         MessageData messageData = MessageData.createMessage(o);
-        if(!sendMessage(messageData,this)){
-            System.out.println("数据发送失败 端口:"+port);
+        if(!executor.isShutdown()) {
+            executor.execute(new SocketThread(this) {
+                @Override
+                public void run() {
+                    if (!sendMessage(messageData, getSocketManager())) {
+                        System.out.println("数据发送失败 端口:" + port);
+                    }
+                }
+            });
+
         }
 
     }
